@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>To-Do List</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>To-Do List</h1>
+        <div class="filters">
+            <label for="filter">Filter by Priority:</label>
+            <select id="filter">
+                <option value="all">All</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+            </select>
+            
+            <label for="sort">Sort by:</label>
+            <select id="sort">
+                <option value="dueDate">Due Date</option>
+                <option value="priority">Priority</option>
+                <option value="creationDate">Creation Date</option>
+            </select>
+        </div>
+        
+        <form id="task-form">
+            <input type="text" id="taskInput" placeholder="Task description" required>
+            <input type="date" id="dueDateInput" required>
+            <select id="priority" required>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+            </select>
+            <button type="submit" id="addTaskButton">Add Task</button>
+        </form>
+
+        <button id="darkModeToggle">Toggle Dark Mode</button>
+        <ul id="task-list"></ul>
+    </div>
+
+    <script>
+        const addTaskButton = document.getElementById('addTaskButton');
+        const taskInput = document.getElementById('taskInput');
+        const dueDateInput = document.getElementById('dueDateInput');
+        const prioritySelect = document.getElementById('priority');
+        const taskList = document.getElementById('task-list'); // Reference the task list
+        const filterSelect = document.getElementById('filter');
+        const sortSelect = document.getElementById('sort');
+
+        const fetchTasks = async () => {
+            try {
+                const response = await fetch('http://localhost:3000/tasks');
+                const tasks = await response.json();
+                applyFilterAndSort(tasks); // Apply filters and sorting to fetched tasks
+            } catch (error) {
+                console.error('Error fetching tasks:', error);
+            }
+        };
+
+        const applyFilterAndSort = (tasks) => {
+            const filterValue = filterSelect.value.toLowerCase();
+            const sortValue = sortSelect.value;
+            
+            const filteredTasks = tasks.filter(task => {
+                if (filterValue === 'all') return true;
+                return task.priority.toLowerCase() === filterValue;
+            });
+
+            const sortedTasks = filteredTasks.sort((a, b) => {
+                if (sortValue === 'dueDate') {
+                    return new Date(a.dueDate) - new Date(b.dueDate);
+                } else if (sortValue === 'priority') {
+                    const priorityOrder = { high: 1, medium: 2, low: 3 };
+                    return priorityOrder[a.priority.toLowerCase()] - priorityOrder[b.priority.toLowerCase()];
+                } else if (sortValue === 'creationDate') {
+                    return new Date(a.createdAt) - new Date(b.createdAt);
+                }
+                return 0;
+            });
+
+            taskList.innerHTML = '';
+            sortedTasks.forEach(task => {
+                const li = createTaskElement(task);
+                taskList.appendChild(li);
+            });
+        };
+
+        const createTaskElement = (task) => {
+            const li = document.createElement('li');
+            li.id = task._id;
+            li.draggable = true;
+
+            const description = task.description || 'No description provided';
+            const priority = task.priority || 'low';
+            const dueDate = task.dueDate || 'No due date';
+
+            li.innerHTML = `
+                <span style="text-decoration: ${task.done ? 'line-through' : 'none'};">
+                    ${description}
+                    <span class="priority priority-${priority.toLowerCase()}">[Priority: ${priority.charAt(0).toUpperCase() + priority.slice(1)}]</span>
+                    <span class="due-date">(Due: ${dueDate})</span>
+                </span>
+                <div>
+                    <button onclick="toggleDone('${task._id}')">${task.done ? 'Undo' : 'Done'}</button>
+                    <button onclick="editTask('${task._id}', '${task.description}')">Edit</button>
+                    <button onclick="deleteTask('${task._id}')">Delete</button>
+                </div>
+            `;
+
+            return li;
+        };
+
+        addTaskButton.onclick = async (event) => {
+            event.preventDefault(); // Prevent form submission
+            
+            const taskDescription = taskInput.value.trim();
+            const dueDate = dueDateInput.value;
+            const taskPriority = prioritySelect.value;
+
+            if (!taskDescription || !dueDate || !taskPriority) {
+                alert('Please fill out all fields.');
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:3000/tasks', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        description: taskDescription,
+                        priority: taskPriority,
+                        dueDate: dueDate
+                    }),
+                });
+
+                if (response.ok) {
+                    taskInput.value = '';
+                    dueDateInput.value = '';
+                    prioritySelect.value = 'low';
+                    fetchTasks(); // Reload the tasks
+                } else {
+                    console.error('Error adding task:', response.statusText);
+                    const errorData = await response.json();
+                    console.error('Error details:', errorData);
+                }
+            } catch (error) {
+                console.error('Network error:', error);
+            }
+        };
+
+        const toggleDone = async (taskId) => {
+            try {
+                await fetch(`http://localhost:3000/tasks/${taskId}/toggle`, { method: 'PATCH' });
+                fetchTasks();
+            } catch (error) {
+                console.error('Error toggling task done state:', error);
+            }
+        };
+
+        const editTask = (taskId, currentDescription) => {
+            const newDescription = prompt('Edit task:', currentDescription);
+            if (newDescription) {
+                updateTask(taskId, newDescription);
+            }
+        };
+
+        const updateTask = async (taskId, newDescription) => {
+            try {
+                await fetch(`http://localhost:3000/tasks/${taskId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ description: newDescription }),
+                });
+                fetchTasks();
+            } catch (error) {
+                console.error('Error updating task:', error);
+            }
+        };
+
+        const deleteTask = async (taskId) => {
+            if (confirm('Are you sure you want to delete this task?')) {
+                try {
+                    await fetch(`http://localhost:3000/tasks/${taskId}`, { method: 'DELETE' });
+                    fetchTasks();
+                } catch (error) {
+                    console.error('Error deleting task:', error);
+                }
+            }
+        };
+
+        taskList.addEventListener('dragover', (event) => {
+            event.preventDefault();
+        });
+
+        taskList.addEventListener('drop', (event) => {
+            event.preventDefault();
+            const draggedTaskId = event.dataTransfer.getData('text/plain');
+            const targetTaskId = event.target.closest('li').id;
+
+            console.log(`Dragged task ${draggedTaskId} dropped on ${targetTaskId}`);
+        });
+
+        fetchTasks(); // Fetch tasks on page load
+
+        document.getElementById('darkModeToggle').onclick = () => {
+            document.body.classList.toggle('dark-mode');
+            document.querySelector('.container').classList.toggle('dark-mode');
+            if (document.body.classList.contains('dark-mode')) {
+                localStorage.setItem('darkMode', 'enabled');
+            } else {
+                localStorage.removeItem('darkMode');
+            }
+        };
+
+        if (localStorage.getItem('darkMode') === 'enabled') {
+            document.body.classList.add('dark-mode');
+            document.querySelector('.container').classList.add('dark-mode');
+        }
+
+        filterSelect.addEventListener('change', fetchTasks);
+        sortSelect.addEventListener('change', fetchTasks);
+    </script>
+</body>
+</html>
